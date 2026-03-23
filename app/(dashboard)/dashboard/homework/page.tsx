@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import { useLocale } from '@/lib/locale-context'
@@ -17,6 +17,7 @@ import {
   XCircle, CheckCircle2, Lock, PlayCircle, Headphones, BookOpen,
   ClipboardList, Youtube, Music, ExternalLink,
 } from 'lucide-react'
+
 
 type Media = { type: 'youtube' | 'audio' | 'pdf' | 'link'; url: string; label?: string }
 
@@ -106,7 +107,7 @@ function MediaDisplay({ media }: { media: Media }) {
   )
 }
 
-export default function StudentHomeworkPage() {
+function HomeworkContent() {
   const { t } = useLocale()
   const { data: session } = useSession()
   const searchParams = useSearchParams()
@@ -494,5 +495,16 @@ export default function StudentHomeworkPage() {
         </DialogContent>
       </Dialog>
     </>
+  )
+}
+export default function StudentHomeworkPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    }>
+      <HomeworkContent />
+    </Suspense>
   )
 }
