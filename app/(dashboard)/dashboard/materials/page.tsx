@@ -26,49 +26,66 @@ type Lesson = {
   titleEn: string
   isUnlocked: boolean
   isCompleted: boolean
-  materials?: Material[]
+  materials: Material[]
+  programName: string
 }
 
-type Program = {
+type LessonResponse = {
   _id: string
-  nameEn: string
-  lessons: Lesson[]
+  order: number
+  titleEn: string
+  isUnlocked: boolean
+  isCompleted: boolean
+  programName?: string
+  programId?: string
 }
 
 export default function MaterialsPage() {
   const { data: session } = useSession()
-  const [programs, setPrograms] = useState<Program[]>([])
+  const [lessons, setLessons] = useState<Lesson[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedProgram, setSelectedProgram] = useState<string>('')
+  const [programs, setPrograms] = useState<string[]>([])
 
   useEffect(() => {
     if (!session?.user?.id) return
 
     Promise.all([
-      fetch('/api/student/programs').then(res => res.json()),
       fetch('/api/student/lessons').then(res => res.json()),
       fetch('/api/student/materials').then(res => res.json()),
-    ]).then(([programsData, lessonsData, materialsData]) => {
-      // Combină datele
-      const programsWithLessons = (programsData.programs || []).map((program: any) => {
-        const programLessons = (lessonsData.lessons || []).filter(
-          (lesson: any) => lesson.programId === program._id
-        )
-        const lessonsWithMaterials = programLessons.map((lesson: any) => ({
-          ...lesson,
-          materials: (materialsData.materials || []).filter(
-            (m: any) => m.lessonId === lesson._id
-          )
-        }))
-        return {
-          ...program,
-          lessons: lessonsWithMaterials.sort((a: any, b: any) => a.order - b.order)
+    ]).then(([lessonsData, materialsData]) => {
+      const allLessons: LessonResponse[] = lessonsData.lessons || []
+      const materialsList: Material[] = materialsData.materials || []
+      
+      // Grupează materialele după lessonId
+      const materialsByLesson: Record<string, Material[]> = {}
+      materialsList.forEach((m: Material) => {
+        if (!materialsByLesson[m.lessonId]) {
+          materialsByLesson[m.lessonId] = []
         }
+        materialsByLesson[m.lessonId].push(m)
       })
 
-      setPrograms(programsWithLessons)
-      if (programsWithLessons.length > 0) {
-        setSelectedProgram(programsWithLessons[0]._id)
+      // Construiește lecțiile cu materiale
+      const lessonsWithMaterials: Lesson[] = allLessons
+        .map((lesson: LessonResponse) => ({
+          _id: lesson._id,
+          order: lesson.order,
+          titleEn: lesson.titleEn,
+          isUnlocked: lesson.isUnlocked,
+          isCompleted: lesson.isCompleted,
+          programName: lesson.programName || '',
+          materials: materialsByLesson[lesson._id] || []
+        }))
+        .filter((lesson: Lesson) => lesson.materials.length > 0)
+
+      // Extrage programele unice
+      const uniquePrograms: string[] = [...new Set(lessonsWithMaterials.map((l: Lesson) => l.programName))]
+      
+      setLessons(lessonsWithMaterials)
+      setPrograms(uniquePrograms)
+      if (uniquePrograms.length > 0) {
+        setSelectedProgram(uniquePrograms[0])
       }
       setLoading(false)
     }).catch((err) => {
@@ -85,16 +102,6 @@ export default function MaterialsPage() {
     }
   }
 
-  const getStatusIcon = (lesson: Lesson) => {
-    if (lesson.isCompleted) {
-      return <CheckCircle className="h-4 w-4 text-green-500" />
-    }
-    if (!lesson.isUnlocked) {
-      return <Lock className="h-4 w-4 text-muted-foreground" />
-    }
-    return null
-  }
-
   if (loading) {
     return (
       <>
@@ -106,7 +113,7 @@ export default function MaterialsPage() {
     )
   }
 
-  if (programs.length === 0) {
+  if (lessons.length === 0) {
     return (
       <>
         <DashboardHeader title="Materials" />
@@ -114,8 +121,8 @@ export default function MaterialsPage() {
           <Card>
             <CardContent className="py-20 text-center text-muted-foreground">
               <FileText className="mx-auto mb-3 h-10 w-10 opacity-40" />
-              <p>No programs or lessons available yet.</p>
-              <p className="text-sm mt-2">Complete lessons to unlock materials.</p>
+              <p>No materials available yet.</p>
+              <p className="text-sm mt-2">Materials will appear here once your teacher adds them.</p>
             </CardContent>
           </Card>
         </main>
@@ -123,141 +130,102 @@ export default function MaterialsPage() {
     )
   }
 
-  // Calculează statistici
-  const totalLessons = programs.reduce((acc, p) => acc + p.lessons.length, 0)
-  const completedLessons = programs.reduce((acc, p) => 
-    acc + p.lessons.filter(l => l.isCompleted).length, 0
-  )
-  const unlockedLessons = programs.reduce((acc, p) => 
-    acc + p.lessons.filter(l => l.isUnlocked).length, 0
-  )
-
   return (
     <>
       <DashboardHeader title="Learning Materials" />
       <main className="p-6">
-        {/* Stats */}
-        <div className="mb-6 grid gap-4 md:grid-cols-3">
-          <Card>
-            <CardContent className="pt-6">
-              <p className="text-2xl font-bold">{totalLessons}</p>
-              <p className="text-sm text-muted-foreground">Total Lessons</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <p className="text-2xl font-bold">{unlockedLessons}</p>
-              <p className="text-sm text-muted-foreground">Unlocked Lessons</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <p className="text-2xl font-bold">{completedLessons}</p>
-              <p className="text-sm text-muted-foreground">Completed</p>
-            </CardContent>
-          </Card>
-        </div>
-
         {programs.length > 0 ? (
           <Tabs value={selectedProgram} onValueChange={setSelectedProgram}>
             <TabsList className="mb-6 flex-wrap">
-              {programs.map(program => (
-                <TabsTrigger key={program._id} value={program._id}>
-                  {program.nameEn}
+              {programs.map((program: string) => (
+                <TabsTrigger key={program} value={program}>
+                  {program}
                 </TabsTrigger>
               ))}
             </TabsList>
             
-            {programs.map(program => (
-              <TabsContent key={program._id} value={program._id}>
+            {programs.map((program: string) => (
+              <TabsContent key={program} value={program}>
                 <Card>
                   <CardHeader>
-                    <CardTitle className="font-serif">{program.nameEn}</CardTitle>
+                    <CardTitle className="font-serif">{program}</CardTitle>
                     <CardDescription>
-                      Materials are unlocked as you complete lessons
+                      Learning materials from your lessons
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-6">
-                      {program.lessons.map((lesson) => {
-                        const hasMaterials = lesson.materials && lesson.materials.length > 0
-                        const isUnlocked = lesson.isUnlocked
-                        const isCompleted = lesson.isCompleted
-                        
-                        return (
-                          <div key={lesson._id} className="rounded-lg border overflow-hidden">
-                            <div className={`flex items-center justify-between p-4 ${
-                              isCompleted ? 'bg-green-50 dark:bg-green-950/20' : ''
-                            }`}>
-                              <div className="flex items-center gap-3">
-                                <div className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium ${
-                                  isCompleted ? 'bg-green-500 text-white' :
-                                  isUnlocked ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
-                                }`}>
-                                  {lesson.order}
-                                </div>
-                                <div>
-                                  <p className="font-medium">{lesson.titleEn}</p>
-                                  <div className="flex items-center gap-2 mt-1">
-                                    {getStatusIcon(lesson)}
-                                    <span className="text-xs text-muted-foreground">
-                                      {isCompleted ? 'Completed' : isUnlocked ? 'Unlocked' : 'Locked'}
-                                    </span>
-                                    {hasMaterials && (
+                      {lessons
+                        .filter((lesson: Lesson) => lesson.programName === program)
+                        .map((lesson: Lesson) => {
+                          const isUnlocked = lesson.isUnlocked
+                          const isCompleted = lesson.isCompleted
+                          
+                          return (
+                            <div key={lesson._id} className="rounded-lg border overflow-hidden">
+                              <div className={`flex items-center justify-between p-4 ${
+                                isCompleted ? 'bg-green-50 dark:bg-green-950/20' : ''
+                              }`}>
+                                <div className="flex items-center gap-3">
+                                  <div className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium ${
+                                    isCompleted ? 'bg-green-500 text-white' :
+                                    isUnlocked ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+                                  }`}>
+                                    {lesson.order}
+                                  </div>
+                                  <div>
+                                    <p className="font-medium">{lesson.titleEn}</p>
+                                    <div className="flex items-center gap-2 mt-1">
                                       <span className="text-xs text-muted-foreground">
-                                        • {lesson.materials!.length} material{lesson.materials!.length !== 1 ? 's' : ''}
+                                        {isCompleted ? 'Completed' : isUnlocked ? 'Unlocked' : 'Locked'}
                                       </span>
-                                    )}
+                                      <span className="text-xs text-muted-foreground">
+                                        • {lesson.materials.length} material{lesson.materials.length !== 1 ? 's' : ''}
+                                      </span>
+                                    </div>
                                   </div>
                                 </div>
                               </div>
-                            </div>
-                            
-                            {/* Materials list - only show if unlocked */}
-                            {isUnlocked && hasMaterials && lesson.materials && (
-                              <div className="border-t bg-muted/30 p-4 space-y-2">
-                                <p className="text-sm font-medium text-muted-foreground mb-2">Materials:</p>
-                                {lesson.materials.map((material, idx) => (
-                                  <a
-                                    key={material._id || idx}
-                                    href={material.url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="flex items-center justify-between rounded-lg bg-background p-3 transition-colors hover:bg-primary/5"
-                                  >
-                                    <div className="flex items-center gap-3">
-                                      {getTypeIcon(material.type)}
-                                      <div>
-                                        <p className="font-medium text-sm">{material.title}</p>
-                                        {material.description && (
-                                          <p className="text-xs text-muted-foreground">{material.description}</p>
-                                        )}
+                              
+                              {/* Materials list - only show if unlocked */}
+                              {isUnlocked && (
+                                <div className="border-t bg-muted/30 p-4 space-y-2">
+                                  <p className="text-sm font-medium text-muted-foreground mb-2">Materials:</p>
+                                  {lesson.materials.map((material: Material, idx: number) => (
+                                    <a
+                                      key={material._id || idx}
+                                      href={material.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="flex items-center justify-between rounded-lg bg-background p-3 transition-colors hover:bg-primary/5"
+                                    >
+                                      <div className="flex items-center gap-3">
+                                        {getTypeIcon(material.type)}
+                                        <div>
+                                          <p className="font-medium text-sm">{material.title}</p>
+                                          {material.description && (
+                                            <p className="text-xs text-muted-foreground">{material.description}</p>
+                                          )}
+                                        </div>
                                       </div>
-                                    </div>
-                                    <ExternalLink className="h-4 w-4 text-muted-foreground" />
-                                  </a>
-                                ))}
-                              </div>
-                            )}
-                            
-                            {/* Locked message */}
-                            {!isUnlocked && hasMaterials && (
-                              <div className="border-t bg-muted/30 p-4">
-                                <p className="text-sm text-muted-foreground flex items-center gap-2">
-                                  <Lock className="h-4 w-4" />
-                                  Complete previous lessons to unlock materials
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })}
-                      
-                      {program.lessons.length === 0 && (
-                        <p className="py-8 text-center text-muted-foreground">
-                          No lessons in this program yet.
-                        </p>
-                      )}
+                                      <ExternalLink className="h-4 w-4 text-muted-foreground" />
+                                    </a>
+                                  ))}
+                                </div>
+                              )}
+                              
+                              {/* Locked message */}
+                              {!isUnlocked && (
+                                <div className="border-t bg-muted/30 p-4">
+                                  <p className="text-sm text-muted-foreground flex items-center gap-2">
+                                    <Lock className="h-4 w-4" />
+                                    Complete previous lessons to unlock materials
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
                     </div>
                   </CardContent>
                 </Card>
@@ -268,7 +236,7 @@ export default function MaterialsPage() {
           <Card>
             <CardContent className="py-8 text-center text-muted-foreground">
               <FileText className="mx-auto mb-3 h-10 w-10 opacity-40" />
-              <p>No programs available.</p>
+              <p>No materials available.</p>
             </CardContent>
           </Card>
         )}
