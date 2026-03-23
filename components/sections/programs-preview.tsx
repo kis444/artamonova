@@ -41,7 +41,7 @@ export function ProgramsPreview() {
     fetch('/api/programs', { cache: 'no-store' })
       .then((r) => r.json())
       .then((data) => {
-        setPrograms(Array.isArray(data) ? data.slice(0, 6) : [])
+        setPrograms(Array.isArray(data) ? data.slice(0, 3) : [])
         setLoading(false)
       })
       .catch(() => setLoading(false))
